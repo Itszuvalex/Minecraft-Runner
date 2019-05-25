@@ -1,0 +1,30 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "go build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "type": "shell",
+            "command": "go build main",
+            "problemMatcher": [
+                "$go"
+            ],
+            "options": {
+                "env": {
+                    "gopath": "${workspaceRoot}"
+                }
+            }
+        },
+        {
+            "label": "go run",
+            "type": "process",
+            "command": "${workspaceRoot}\\main.exe",
+            "problemMatcher": []
+        }
+    ]
+}
