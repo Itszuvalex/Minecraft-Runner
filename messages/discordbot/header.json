@@ -1,0 +1,7 @@
+{
+    "type": "string",
+        "_valid_types_": [ "status", "msg" ],
+    "data": {
+        "_comment_" : "This is will vary depending on the type"
+    }
+}

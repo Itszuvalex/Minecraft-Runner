@@ -1,0 +1,17 @@
+{
+    "name": "string",
+    "playercount": 0,
+    "playermax": 20,
+    "activetime": 209234,
+    "status" : "string",
+        "_status_types_": ["Not Running", "Starting", "Running"],
+    "memory": 2048,
+    "memorymax":8196,
+    "storage": 2384923,
+    "storagemax": 23480234,
+    "tps": {
+        "0": 1.8,
+        "-1": 17.8,
+        "1": 19.8
+    }
+}

@@ -1,0 +1,4 @@
+{
+    "cmd": "string",
+        "_valid_cmds": ["start", "stop", "kill", "reboot", "forcereboot", "save"]
+}
