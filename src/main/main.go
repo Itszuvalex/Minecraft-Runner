@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Hello world")
+	fmt.Println("Starting server...")
 	runner := new(mcrunner.McRunner)
 	runner.Start()
 }

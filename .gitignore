@@ -11,3 +11,11 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# Leave out tools and dependencies.
+src/github.com
+src/golang.org
+src/mcrunner/vendor
+
+# Build files
+pkg/
