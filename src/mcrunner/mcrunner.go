@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -99,7 +100,34 @@ func (runner *McRunner) Start() error {
 
 // applySettings applies the Settings struct contained in McRunner.
 func (runner *McRunner) applySettings() {
+	props, err := ioutil.ReadFile("server.properties")
 
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	nameExp, _ := regexp.Compile("displayname=.*\\n")
+	motdExp, _ := regexp.Compile("motd=.*\\n")
+	maxPlayersExp, _ := regexp.Compile("max-players=.*\\n")
+	portExp, _ := regexp.Compile("server-port=.*\\n")
+
+	name := fmt.Sprintf("displayname=%s\n", runner.Settings.Name)
+	motd := fmt.Sprintf("motd=%s\n", runner.Settings.MOTD)
+	maxPlayers := fmt.Sprintf("max-players=%d\n", runner.Settings.MaxPlayers)
+	port := fmt.Sprintf("server-port=%d\n", runner.Settings.Port)
+
+	newProps := strings.Replace(string(props), nameExp.FindString(string(props)), name, 1)
+	newProps = strings.Replace(newProps, motdExp.FindString(newProps), motd, 1)
+	newProps = strings.Replace(newProps, maxPlayersExp.FindString(newProps), maxPlayers, 1)
+	newProps = strings.Replace(newProps, portExp.FindString(newProps), port, 1)
+
+	err = ioutil.WriteFile("server.properties", []byte(newProps), 0644)
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 }
 
 // processOutput monitors and processes output from the server.
@@ -167,7 +195,15 @@ func (runner *McRunner) updateStatus() {
 
 // processCommands processes commands from the discord bot.
 func (runner *McRunner) processCommands() {
+	for {
+		select {
+		case command := <-runner.CommandChannel:
+			runner.executeCommand(command)
+		case <-runner.killChannel:
+			return
+		}
 
+	}
 }
 
 // executeCommand is a helper function to execute commands.
