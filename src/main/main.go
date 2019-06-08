@@ -12,7 +12,11 @@ func main() {
 	fmt.Println("Starting server...")
 	runner := new(mcrunner.McRunner)
 	runner.Settings = loadSettings()
-	runner.Start()
+	go runner.Start()
+
+	bothandler := new(mcrunner.BotHandler)
+	bothandler.McRunner = runner
+	go bothandler.Start()
 }
 
 func loadSettings() mcrunner.Settings {
