@@ -190,7 +190,7 @@ func (runner *McRunner) processOutput() {
 
 						runner.tpsChannel <- m
 					} else if playerExp.Match(buf) {
-						content := str[strings.Index(str, "there"):]
+						content := str[strings.Index(str, "There"):]
 
 						numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
 						players, _ := strconv.Atoi(numExp.FindString(content))
@@ -343,4 +343,5 @@ func (runner *McRunner) executeCommand(command string) {
 	defer runner.inMutex.Unlock()
 
 	runner.inPipe.Write([]byte(command))
+	runner.inPipe.Write([]byte("\n"))
 }
