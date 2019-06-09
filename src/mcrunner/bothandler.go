@@ -18,13 +18,13 @@ type header struct {
 
 // command defines the structure of a command message from the Discord bot.
 type command struct {
-	Command string
+	Command string `json:"cmd"`
 }
 
 // message defines the structure of a message to the Discord bot.
 type message struct {
-	timestamp string
-	message   string
+	Timestamp string `json:"timestamp"`
+	Message   string `json:"message"`
 }
 
 // BotHandler encapsulates the communication with the Discord bot.
@@ -109,7 +109,7 @@ func (handler *BotHandler) handleMessages() {
 	for {
 		select {
 		case msg := <-handler.McRunner.MessageChannel:
-			message := message{timestamp: time.Now().Format(time.RFC3339), message: msg}
+			message := message{Timestamp: time.Now().Format(time.RFC3339), Message: msg}
 			messageJSON, _ := json.Marshal(message)
 			header := header{Type: "msg", Data: messageJSON}
 			handler.sock.WriteJSON(header)

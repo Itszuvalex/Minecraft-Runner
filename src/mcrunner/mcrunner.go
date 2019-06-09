@@ -87,7 +87,7 @@ func (runner *McRunner) Start() error {
 	}
 
 	runner.applySettings()
-	runner.cmd = exec.Command("java", "-jar", "forge-universal.jar", "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA")
+	runner.cmd = exec.Command("java", "-jar", "forge-universal.jar", "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA", "nogui")
 	runner.inPipe, _ = runner.cmd.StdinPipe()
 	runner.outPipe, _ = runner.cmd.StdoutPipe()
 	runner.cmd.Stderr = os.Stderr
@@ -172,10 +172,11 @@ func (runner *McRunner) processOutput() {
 				if runner.State == Starting {
 					if doneExp.Match(buf) {
 						runner.State = Running
+						fmt.Println("Minecraft server done loading.")
 					}
 				} else if runner.State == Running {
 					if msgExp.Match(buf) {
-						runner.MessageChannel <- str[strings.Index(str, ":")+1:]
+						runner.MessageChannel <- str[strings.Index(str, "<"):]
 					} else if tpsExp.Match(buf) {
 						content := str[strings.Index(str, "Dim"):]
 

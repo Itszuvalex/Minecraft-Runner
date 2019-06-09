@@ -44,7 +44,7 @@ func loadSettings() mcrunner.Settings {
 		}
 	} else if os.IsNotExist(err) {
 		fmt.Println("'settings.json' not found, generating default file.")
-		settingsJSON, _ := json.Marshal(defaultSettings)
+		settingsJSON, _ := json.MarshalIndent(defaultSettings, "", "    ")
 		err = ioutil.WriteFile("settings.json", settingsJSON, 0644)
 		if err != nil {
 			fmt.Print(err)
