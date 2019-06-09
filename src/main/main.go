@@ -24,7 +24,7 @@ func main() {
 
 	bothandler := new(mcrunner.BotHandler)
 	bothandler.McRunner = runner
-	runner.WaitGroup.Add(2)
+	runner.WaitGroup.Add(3)
 	go bothandler.Start()
 
 	runner.WaitGroup.Wait()

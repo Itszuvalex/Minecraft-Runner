@@ -169,7 +169,6 @@ func (runner *McRunner) processOutput() {
 				playerExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: There are")
 				doneExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Done")
 
-				runner.updateState()
 				if runner.State == Starting {
 					if doneExp.Match(buf) {
 						runner.State = Running
@@ -208,10 +207,13 @@ func (runner *McRunner) keepAlive() {
 	defer runner.WaitGroup.Done()
 	for {
 		select {
-		case <-time.After(15 * time.Second):
-			runner.updateState()
-
-			if runner.State == NotRunning {
+		default:
+			state, err := runner.cmd.Process.Wait()
+			if state.Exited() {
+				runner.State = NotRunning
+				if err != nil {
+					fmt.Println(err)
+				}
 				runner.Start()
 			}
 		case <-runner.killChannel:
@@ -220,21 +222,12 @@ func (runner *McRunner) keepAlive() {
 	}
 }
 
-// updateState updates the state of the server.
-func (runner *McRunner) updateState() {
-	//TODO; Find out why this is segfaulting...
-	//if (runner.State != NotRunning) && (runner.cmd.ProcessState.Exited()) {
-	//runner.State = NotRunning
-	//}
-}
-
 // updateStatus sends the status to the BotHandler when requested.
 func (runner *McRunner) updateStatus() {
 	defer runner.WaitGroup.Done()
 	for {
 		select {
 		case <-runner.StatusRequestChannel:
-			runner.updateState()
 			if runner.State != Running {
 				continue
 			}
