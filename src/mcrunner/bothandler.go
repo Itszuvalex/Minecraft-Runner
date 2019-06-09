@@ -21,6 +21,12 @@ type command struct {
 	Command string
 }
 
+// message defines the structure of a message to the Discord bot.
+type message struct {
+	timestamp string
+	message   string
+}
+
 // BotHandler encapsulates the communication with the Discord bot.
 type BotHandler struct {
 	McRunner *McRunner
@@ -46,6 +52,8 @@ func (handler *BotHandler) Start() error {
 
 		// Start websocket listener.
 		go handler.listen()
+		go handler.updateStatus()
+		go handler.handleMessages()
 	})
 	s.ListenAndServe()
 	return err
@@ -84,11 +92,27 @@ func (handler *BotHandler) updateStatus() {
 
 		select {
 		case status := <-handler.McRunner.StatusChannel:
-			handler.sock.WriteJSON(status)
+			statusJSON, _ := json.Marshal(status)
+			header := header{Type: "status", Data: statusJSON}
+			handler.sock.WriteJSON(header)
 		case <-time.After(10 * time.Second):
 			fmt.Println("Failed to receive status update from runner, might be deadlocked.")
 		}
 
 		time.Sleep(60 * time.Second)
+	}
+}
+
+// handleMessages forwards chat messages from the mc server to the discord bot.
+func (handler *BotHandler) handleMessages() {
+	defer handler.McRunner.WaitGroup.Done()
+	for {
+		select {
+		case msg := <-handler.McRunner.MessageChannel:
+			message := message{timestamp: time.Now().Format(time.RFC3339), message: msg}
+			messageJSON, _ := json.Marshal(message)
+			header := header{Type: "msg", Data: messageJSON}
+			handler.sock.WriteJSON(header)
+		}
 	}
 }
