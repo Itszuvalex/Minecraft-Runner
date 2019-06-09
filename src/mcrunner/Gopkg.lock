@@ -2,6 +2,25 @@
 
 
 [[projects]]
+  digest = "1:e92f5581902c345eb4ceffdcd4a854fb8f73cf436d47d837d1ec98ef1fe0a214"
+  name = "github.com/StackExchange/wmi"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "5d049714c4a64225c3c79a7cf7d02f7fb5b96338"
+  version = "1.0.0"
+
+[[projects]]
+  digest = "1:440028f55cb322d8cb5b9d5ebec298a00b7d74690a658fe6b1c0c0b44341bfae"
+  name = "github.com/go-ole/go-ole"
+  packages = [
+    ".",
+    "oleutil",
+  ]
+  pruneopts = "UT"
+  revision = "97b6244175ae18ea6eef668034fd6565847501c9"
+  version = "v1.2.4"
+
+[[projects]]
   branch = "master"
   digest = "1:b9bcacf2d59befcb6feed27d787c06f78e8fafdcd880f422f1db0fd332ddb02c"
   name = "github.com/gorilla/websocket"
@@ -9,9 +28,47 @@
   pruneopts = "UT"
   revision = "80c2d40e9b91f2ef7a9c1a403aeec64d1b89a9a6"
 
+[[projects]]
+  branch = "master"
+  digest = "1:8d4748f7a171a37e4001ece46ad5e14b4d1e766fbf8020e00c24b4a0c9652b75"
+  name = "github.com/shirou/gopsutil"
+  packages = [
+    "cpu",
+    "disk",
+    "internal/common",
+    "mem",
+    "net",
+    "process",
+  ]
+  pruneopts = "UT"
+  revision = "35f21af98a5eba8641d4ab3ba0d29e4bfc42260f"
+
+[[projects]]
+  branch = "master"
+  digest = "1:99c6a6dab47067c9b898e8c8b13d130c6ab4ffbcc4b7cc6236c2cd0b1e344f5b"
+  name = "github.com/shirou/w32"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "bb4de0191aa41b5507caa14b0650cdbddcd9280b"
+
+[[projects]]
+  branch = "master"
+  digest = "1:f2c1bf1f253a026632a5f8871b9ec426a04a2a97983c541acac40f6dae7448d1"
+  name = "golang.org/x/sys"
+  packages = [
+    "unix",
+    "windows",
+  ]
+  pruneopts = "UT"
+  revision = "5b15430b70e38eb7f9c844f97c25f25a246d5c63"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  input-imports = ["github.com/gorilla/websocket"]
+  input-imports = [
+    "github.com/gorilla/websocket",
+    "github.com/shirou/gopsutil/disk",
+    "github.com/shirou/gopsutil/process",
+  ]
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -12,6 +12,11 @@ func main() {
 	fmt.Println("Starting server...")
 	runner := new(mcrunner.McRunner)
 	runner.Settings = loadSettings()
+	runner.StatusRequestChannel = make(chan bool, 1)
+	runner.StatusChannel = make(chan *mcrunner.Status, 1)
+	runner.MessageChannel = make(chan string, 32)
+	runner.CommandChannel = make(chan string, 32)
+	runner.FirstStart = true
 	go runner.Start()
 
 	bothandler := new(mcrunner.BotHandler)

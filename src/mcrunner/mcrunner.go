@@ -11,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/process"
 )
 
 // IRunner interface to running object
@@ -32,6 +35,7 @@ const (
 
 // Settings encapsulates some basic settings for the server.
 type Settings struct {
+	Directory  string
 	Name       string
 	MOTD       string
 	MaxRAM     int
@@ -48,19 +52,19 @@ type Status struct {
 	Status      string          `json:"status"`
 	Memory      int             `json:"memory"`
 	MemoryMax   int             `json:"memorymax"`
-	Storage     int             `json:"storage"`
-	StorageMax  int             `json:"storagemax"`
+	Storage     uint64          `json:"storage"`
+	StorageMax  uint64          `json:"storagemax"`
 	TPS         json.RawMessage `json:"tps"`
 }
 
 // McRunner encapsulates the idea of running a minecraft server.
 type McRunner struct {
-	Directory string
-	Settings  Settings
-	State     State
+	FirstStart bool
+	Settings   Settings
+	State      State
 
 	StatusRequestChannel chan bool
-	StatusChannel        chan Status
+	StatusChannel        chan *Status
 	MessageChannel       chan string
 	CommandChannel       chan string
 
@@ -69,11 +73,6 @@ type McRunner struct {
 	outPipe io.ReadCloser
 	cmd     *exec.Cmd
 
-	firstStart bool
-
-	playerCount int
-	tps         map[int]float32
-
 	killChannel   chan bool
 	tpsChannel    chan map[int]float32
 	playerChannel chan int
@@ -81,14 +80,23 @@ type McRunner struct {
 
 // Start initializes the runner and starts the minecraft server up.
 func (runner *McRunner) Start() error {
+	if runner.State != NotRunning {
+		return nil
+	}
 	runner.applySettings()
 	runner.cmd = exec.Command("java", "-jar forge-*.jar", "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA")
 	runner.inPipe, _ = runner.cmd.StdinPipe()
 	runner.outPipe, _ = runner.cmd.StdoutPipe()
 	err := runner.cmd.Start()
+	runner.State = Starting
 
-	if runner.firstStart {
-		runner.firstStart = false
+	if runner.FirstStart {
+		runner.FirstStart = false
+
+		// Initialize McRunner members that aren't initialized yet.
+		runner.killChannel = make(chan bool, 3)
+		runner.tpsChannel = make(chan map[int]float32, 8)
+		runner.playerChannel = make(chan int, 1)
 
 		go runner.keepAlive()
 		go runner.updateStatus()
@@ -141,28 +149,36 @@ func (runner *McRunner) processOutput() {
 			msgExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: <.*>")
 			tpsExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Dim")
 			playerExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: There are")
+			doneExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Done")
 
-			if msgExp.Match(buf) {
-				runner.MessageChannel <- str[strings.Index(str, ":")+1:]
-			} else if tpsExp.Match(buf) {
-				content := str[strings.Index(str, "Dim"):]
+			runner.updateState()
+			if runner.State == Starting {
+				if doneExp.Match(buf) {
+					runner.State = Running
+				}
+			} else if runner.State == Running {
+				if msgExp.Match(buf) {
+					runner.MessageChannel <- str[strings.Index(str, ":")+1:]
+				} else if tpsExp.Match(buf) {
+					content := str[strings.Index(str, "Dim"):]
 
-				numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
-				nums := numExp.FindAllString(content, -1)
-				dim, _ := strconv.Atoi(nums[0])
-				tps, _ := strconv.ParseFloat(nums[len(nums)-1], 32)
+					numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
+					nums := numExp.FindAllString(content, -1)
+					dim, _ := strconv.Atoi(nums[0])
+					tps, _ := strconv.ParseFloat(nums[len(nums)-1], 32)
 
-				m := make(map[int]float32)
-				m[dim] = float32(tps)
+					m := make(map[int]float32)
+					m[dim] = float32(tps)
 
-				runner.tpsChannel <- m
-			} else if playerExp.Match(buf) {
-				content := str[strings.Index(str, "there"):]
+					runner.tpsChannel <- m
+				} else if playerExp.Match(buf) {
+					content := str[strings.Index(str, "there"):]
 
-				numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
-				players, _ := strconv.Atoi(numExp.FindString(content))
+					numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
+					players, _ := strconv.Atoi(numExp.FindString(content))
 
-				runner.playerChannel <- players
+					runner.playerChannel <- players
+				}
 			}
 		}
 	}
@@ -171,13 +187,16 @@ func (runner *McRunner) processOutput() {
 // keepAlive monitors the minecraft server and restarts it if it dies.
 func (runner *McRunner) keepAlive() {
 	for {
-		runner.updateState()
+		select {
+		case <-time.After(15 * time.Second):
+			runner.updateState()
 
-		if runner.State == NotRunning {
-			runner.Start()
+			if runner.State == NotRunning {
+				runner.Start()
+			}
+		case <-runner.killChannel:
+			return
 		}
-
-		time.Sleep(5 * time.Second)
 	}
 }
 
@@ -190,7 +209,68 @@ func (runner *McRunner) updateState() {
 
 // updateStatus sends the status to the BotHandler when requested.
 func (runner *McRunner) updateStatus() {
+	for {
+		select {
+		case <-runner.StatusRequestChannel:
+			runner.updateState()
+			if runner.State != Running {
+				continue
+			}
 
+			status := new(Status)
+			status.Name = runner.Settings.Name
+			status.PlayerMax = runner.Settings.MaxPlayers
+			switch runner.State {
+			case NotRunning:
+				status.Status = "Not Running"
+			case Starting:
+				status.Status = "Starting"
+			case Running:
+				status.Status = "Running"
+			}
+
+			proc, _ := process.NewProcess(int32(runner.cmd.Process.Pid))
+			memInfo, _ := proc.MemoryInfo()
+			status.MemoryMax = runner.Settings.MaxRAM
+			status.Memory = int(memInfo.RSS)
+
+			usage, _ := disk.Usage("world/")
+			status.Storage = usage.Used
+			status.StorageMax = usage.Total
+
+			runner.executeCommand("list")
+			status.PlayerCount = <-runner.playerChannel
+
+			tpsMap := make(map[int]float32)
+			runner.executeCommand("forge tps")
+		loop:
+			for {
+				select {
+				case m := <-runner.tpsChannel:
+					for k, v := range m {
+						tpsMap[k] = v
+					}
+				case <-time.After(1 * time.Second):
+					break loop
+				}
+			}
+			var tpsStrBuilder strings.Builder
+			tpsStrBuilder.WriteString("{ ")
+			for k, v := range tpsMap {
+				tpsStrBuilder.WriteString(fmt.Sprintf("\"%d\": %f, ", k, v))
+			}
+			tpsStr := tpsStrBuilder.String()[:tpsStrBuilder.Len()-3]
+			tpsStrBuilder.Reset()
+			tpsStrBuilder.WriteString(tpsStr)
+			tpsStrBuilder.WriteString("}")
+			tpsStr = tpsStrBuilder.String()
+			status.TPS = []byte(tpsStr)
+
+			runner.StatusChannel <- status
+		case <-runner.killChannel:
+			return
+		}
+	}
 }
 
 // processCommands processes commands from the discord bot.
@@ -198,6 +278,36 @@ func (runner *McRunner) processCommands() {
 	for {
 		select {
 		case command := <-runner.CommandChannel:
+			switch command {
+			case "start":
+				if runner.State == NotRunning {
+					runner.Start()
+				}
+			case "stop":
+				runner.executeCommand("stop")
+				runner.killChannel <- true
+				runner.killChannel <- true
+				runner.killChannel <- true
+				runner.State = NotRunning
+			case "kill":
+				runner.cmd.Process.Kill()
+				runner.killChannel <- true
+				runner.killChannel <- true
+				runner.killChannel <- true
+				runner.State = NotRunning
+			case "reboot":
+				runner.executeCommand("stop")
+				time.Sleep(5 * time.Second)
+				runner.Start()
+			case "forcereboot":
+				runner.cmd.Process.Kill()
+				time.Sleep(5 * time.Second)
+				runner.Start()
+			case "save":
+				runner.executeCommand("save-all")
+			default:
+				runner.executeCommand(command)
+			}
 			runner.executeCommand(command)
 		case <-runner.killChannel:
 			return
