@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -63,6 +64,7 @@ type McRunner struct {
 	Settings   Settings
 	State      State
 
+	WaitGroup            sync.WaitGroup
 	StatusRequestChannel chan bool
 	StatusChannel        chan *Status
 	MessageChannel       chan string
@@ -83,11 +85,17 @@ func (runner *McRunner) Start() error {
 	if runner.State != NotRunning {
 		return nil
 	}
+
 	runner.applySettings()
-	runner.cmd = exec.Command("java", "-jar forge-*.jar", "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA")
+	runner.cmd = exec.Command("java", "-jar", "forge-universal.jar", "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA")
 	runner.inPipe, _ = runner.cmd.StdinPipe()
 	runner.outPipe, _ = runner.cmd.StdoutPipe()
+	runner.cmd.Stderr = os.Stderr
 	err := runner.cmd.Start()
+	if err != nil {
+		fmt.Print(err)
+		return err
+	}
 	runner.State = Starting
 
 	if runner.FirstStart {
@@ -101,6 +109,7 @@ func (runner *McRunner) Start() error {
 		go runner.keepAlive()
 		go runner.updateStatus()
 		go runner.processCommands()
+		go runner.processOutput()
 	}
 
 	return err
@@ -108,7 +117,11 @@ func (runner *McRunner) Start() error {
 
 // applySettings applies the Settings struct contained in McRunner.
 func (runner *McRunner) applySettings() {
-	props, err := ioutil.ReadFile("server.properties")
+	var propPathBuilder strings.Builder
+	propPathBuilder.WriteString(runner.Settings.Directory)
+	propPathBuilder.WriteString("server.properties")
+	propPath := propPathBuilder.String()
+	props, err := ioutil.ReadFile(propPath)
 
 	if err != nil {
 		fmt.Println(err)
@@ -130,7 +143,7 @@ func (runner *McRunner) applySettings() {
 	newProps = strings.Replace(newProps, maxPlayersExp.FindString(newProps), maxPlayers, 1)
 	newProps = strings.Replace(newProps, portExp.FindString(newProps), port, 1)
 
-	err = ioutil.WriteFile("server.properties", []byte(newProps), 0644)
+	err = ioutil.WriteFile(propPath, []byte(newProps), 0644)
 
 	if err != nil {
 		fmt.Println(err)
@@ -140,44 +153,50 @@ func (runner *McRunner) applySettings() {
 
 // processOutput monitors and processes output from the server.
 func (runner *McRunner) processOutput() {
+	defer runner.WaitGroup.Done()
 	for {
-		buf := make([]byte, 256)
-		n, err := runner.outPipe.Read(buf)
-		str := string(buf[:n])
+		select {
+		case <-runner.killChannel:
+			return
+		default:
+			buf := make([]byte, 256)
+			n, err := runner.outPipe.Read(buf)
+			str := string(buf[:n])
 
-		if (err == nil) && (n > 1) {
-			msgExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: <.*>")
-			tpsExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Dim")
-			playerExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: There are")
-			doneExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Done")
+			if (err == nil) && (n > 1) {
+				msgExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: <.*>")
+				tpsExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Dim")
+				playerExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: There are")
+				doneExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Done")
 
-			runner.updateState()
-			if runner.State == Starting {
-				if doneExp.Match(buf) {
-					runner.State = Running
-				}
-			} else if runner.State == Running {
-				if msgExp.Match(buf) {
-					runner.MessageChannel <- str[strings.Index(str, ":")+1:]
-				} else if tpsExp.Match(buf) {
-					content := str[strings.Index(str, "Dim"):]
+				runner.updateState()
+				if runner.State == Starting {
+					if doneExp.Match(buf) {
+						runner.State = Running
+					}
+				} else if runner.State == Running {
+					if msgExp.Match(buf) {
+						runner.MessageChannel <- str[strings.Index(str, ":")+1:]
+					} else if tpsExp.Match(buf) {
+						content := str[strings.Index(str, "Dim"):]
 
-					numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
-					nums := numExp.FindAllString(content, -1)
-					dim, _ := strconv.Atoi(nums[0])
-					tps, _ := strconv.ParseFloat(nums[len(nums)-1], 32)
+						numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
+						nums := numExp.FindAllString(content, -1)
+						dim, _ := strconv.Atoi(nums[0])
+						tps, _ := strconv.ParseFloat(nums[len(nums)-1], 32)
 
-					m := make(map[int]float32)
-					m[dim] = float32(tps)
+						m := make(map[int]float32)
+						m[dim] = float32(tps)
 
-					runner.tpsChannel <- m
-				} else if playerExp.Match(buf) {
-					content := str[strings.Index(str, "there"):]
+						runner.tpsChannel <- m
+					} else if playerExp.Match(buf) {
+						content := str[strings.Index(str, "there"):]
 
-					numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
-					players, _ := strconv.Atoi(numExp.FindString(content))
+						numExp, _ := regexp.Compile("[+-]?([0-9]*[.])?[0-9]+")
+						players, _ := strconv.Atoi(numExp.FindString(content))
 
-					runner.playerChannel <- players
+						runner.playerChannel <- players
+					}
 				}
 			}
 		}
@@ -186,6 +205,7 @@ func (runner *McRunner) processOutput() {
 
 // keepAlive monitors the minecraft server and restarts it if it dies.
 func (runner *McRunner) keepAlive() {
+	defer runner.WaitGroup.Done()
 	for {
 		select {
 		case <-time.After(15 * time.Second):
@@ -202,13 +222,15 @@ func (runner *McRunner) keepAlive() {
 
 // updateState updates the state of the server.
 func (runner *McRunner) updateState() {
-	if (runner.State != NotRunning) && (runner.cmd.ProcessState.Exited()) {
-		runner.State = NotRunning
-	}
+	//TODO; Find out why this is segfaulting...
+	//if (runner.State != NotRunning) && (runner.cmd.ProcessState.Exited()) {
+	//runner.State = NotRunning
+	//}
 }
 
 // updateStatus sends the status to the BotHandler when requested.
 func (runner *McRunner) updateStatus() {
+	defer runner.WaitGroup.Done()
 	for {
 		select {
 		case <-runner.StatusRequestChannel:
@@ -234,7 +256,11 @@ func (runner *McRunner) updateStatus() {
 			status.MemoryMax = runner.Settings.MaxRAM
 			status.Memory = int(memInfo.RSS)
 
-			usage, _ := disk.Usage("world/")
+			var worldPathBuilder strings.Builder
+			worldPathBuilder.WriteString(runner.Settings.Directory)
+			worldPathBuilder.WriteString("world/")
+			worldPath := worldPathBuilder.String()
+			usage, _ := disk.Usage(worldPath)
 			status.Storage = usage.Used
 			status.StorageMax = usage.Total
 
@@ -275,6 +301,7 @@ func (runner *McRunner) updateStatus() {
 
 // processCommands processes commands from the discord bot.
 func (runner *McRunner) processCommands() {
+	defer runner.WaitGroup.Done()
 	for {
 		select {
 		case command := <-runner.CommandChannel:

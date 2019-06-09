@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"mcrunner"
 	"os"
+	"sync"
 )
 
 func main() {
@@ -17,18 +18,23 @@ func main() {
 	runner.MessageChannel = make(chan string, 32)
 	runner.CommandChannel = make(chan string, 32)
 	runner.FirstStart = true
+	runner.WaitGroup = sync.WaitGroup{}
+	runner.WaitGroup.Add(4)
 	go runner.Start()
 
 	bothandler := new(mcrunner.BotHandler)
 	bothandler.McRunner = runner
+	runner.WaitGroup.Add(2)
 	go bothandler.Start()
+
+	runner.WaitGroup.Wait()
 }
 
 func loadSettings() mcrunner.Settings {
 	_, err := os.Stat("settings.json")
-	defaultSettings := mcrunner.Settings{Name: "?", MaxRAM: 6192, MaxPlayers: 20}
+	defaultSettings := mcrunner.Settings{Directory: "./", Name: "?", MOTD: "?", MaxRAM: 6192, MaxPlayers: 20, Port: 25565}
 
-	if err != nil {
+	if err == nil {
 		file, err := os.Open("settings.json")
 		if err == nil {
 			bytes, _ := ioutil.ReadAll(file)
@@ -46,7 +52,7 @@ func loadSettings() mcrunner.Settings {
 		return defaultSettings
 	}
 
-	fmt.Print(err)
+	fmt.Println(err)
 	fmt.Println("Error opening settings file, using defaults.")
 	return defaultSettings
 }

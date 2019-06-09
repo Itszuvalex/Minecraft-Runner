@@ -53,6 +53,7 @@ func (handler *BotHandler) Start() error {
 
 // listen listens for messages from the Discord bot.
 func (handler *BotHandler) listen() {
+	defer handler.McRunner.WaitGroup.Done()
 	for {
 		header := new(header)
 		err := handler.sock.ReadJSON(header)
@@ -77,6 +78,7 @@ func (handler *BotHandler) listen() {
 
 // updateStatus frequently sends status updates to the discord bot.
 func (handler *BotHandler) updateStatus() {
+	defer handler.McRunner.WaitGroup.Done()
 	for {
 		handler.McRunner.StatusRequestChannel <- true
 
