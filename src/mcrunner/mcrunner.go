@@ -70,10 +70,11 @@ type McRunner struct {
 	MessageChannel       chan string
 	CommandChannel       chan string
 
-	inPipe  io.WriteCloser
-	inMutex sync.Mutex
-	outPipe io.ReadCloser
-	cmd     *exec.Cmd
+	inPipe    io.WriteCloser
+	inMutex   sync.Mutex
+	outPipe   io.ReadCloser
+	cmd       *exec.Cmd
+	startTime time.Time
 
 	killChannel   chan bool
 	tpsChannel    chan map[int]float32
@@ -97,6 +98,7 @@ func (runner *McRunner) Start() error {
 		return err
 	}
 	runner.State = Starting
+	runner.startTime = time.Now()
 
 	if runner.FirstStart {
 		runner.FirstStart = false
@@ -244,6 +246,7 @@ func (runner *McRunner) updateStatus() {
 			case Running:
 				status.Status = "Running"
 			}
+			status.ActiveTime = int(time.Since(runner.startTime).Seconds())
 
 			proc, _ := process.NewProcess(int32(runner.cmd.Process.Pid))
 			memInfo, _ := proc.MemoryInfo()
