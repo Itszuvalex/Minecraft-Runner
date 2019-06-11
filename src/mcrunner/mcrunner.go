@@ -262,15 +262,15 @@ func (runner *McRunner) updateStatus() {
 			proc, _ := process.NewProcess(int32(runner.cmd.Process.Pid))
 			memInfo, _ := proc.MemoryInfo()
 			status.MemoryMax = runner.Settings.MaxRAM
-			status.Memory = int(memInfo.RSS)
+			status.Memory = int(memInfo.RSS / (1024 * 1024))
 
 			var worldPathBuilder strings.Builder
 			worldPathBuilder.WriteString(runner.Settings.Directory)
 			worldPathBuilder.WriteString("world/")
 			worldPath := worldPathBuilder.String()
 			usage, _ := disk.Usage(worldPath)
-			status.Storage = usage.Used
-			status.StorageMax = usage.Total
+			status.Storage = usage.Used / (1024 * 1024)
+			status.StorageMax = usage.Total / (1024 * 1024)
 
 			runner.executeCommand("list")
 			status.PlayerCount = <-runner.playerChannel

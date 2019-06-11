@@ -45,6 +45,10 @@ func (handler *BotHandler) Start() error {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Upgrade HTTP request to a websocket connection.
 		upgrader := websocket.Upgrader{}
+		upgrader.CheckOrigin = func(r *http.Request) bool {
+			// Allow connections from any origin.
+			return true
+		}
 		ws, err := upgrader.Upgrade(w, r, nil)
 
 		if err != nil {
