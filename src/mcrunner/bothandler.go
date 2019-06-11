@@ -30,12 +30,16 @@ type message struct {
 type BotHandler struct {
 	McRunner *McRunner
 
-	sock        *websocket.Conn
-	killChannel chan bool
+	sock            *websocket.Conn
+	killChannel     chan bool
+	connectionAlive bool
 }
 
 // Start initializes the bot handler and starts up a websocket listener.
 func (handler *BotHandler) Start() error {
+	handler.killChannel = make(chan bool, 3)
+	handler.connectionAlive = false
+
 	// Listen for the bot to establish a connection with us.
 	s := http.Server{Addr: handler.McRunner.Settings.ListenAddress, Handler: nil}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -47,17 +51,35 @@ func (handler *BotHandler) Start() error {
 			fmt.Println(err)
 			return
 		}
+		fmt.Println(fmt.Sprintf("Opened websocket connection from %s.", r.RemoteAddr))
 
-		if handler.sock == nil {
-			handler.killChannel = make(chan bool, 3)
-		} else {
+		if handler.connectionAlive {
 			handler.sock.Close()
 			handler.killChannel <- true
 			handler.killChannel <- true
 			handler.killChannel <- true
+
+			// Make sure there's time for the kill messages to get through to the old goroutines
+			// before we create the new ones.
+			time.Sleep(1 * time.Second)
+		} else {
+			handler.connectionAlive = true
 		}
 
 		handler.sock = ws
+		handler.sock.SetCloseHandler(func(code int, text string) error {
+			message := websocket.FormatCloseMessage(code, "")
+			handler.sock.WriteControl(websocket.CloseMessage, message, time.Now().Add(time.Second))
+			fmt.Println(fmt.Sprintf("Websocket closed with code %d.", code))
+
+			handler.killChannel <- true
+			handler.killChannel <- true
+			handler.killChannel <- true
+
+			handler.connectionAlive = false
+
+			return nil
+		})
 
 		// Start websocket listeners.
 		go handler.listen()
@@ -86,6 +108,12 @@ func (handler *BotHandler) listen() {
 
 			if err != nil {
 				fmt.Println(err)
+				fmt.Println("Killing websocket handler goroutines due to error.")
+				handler.killChannel <- true
+				handler.killChannel <- true
+				handler.killChannel <- true
+				handler.sock.Close()
+				handler.connectionAlive = false
 				break
 			}
 

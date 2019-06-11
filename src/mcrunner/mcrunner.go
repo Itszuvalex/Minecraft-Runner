@@ -173,7 +173,7 @@ func (runner *McRunner) processOutput() {
 
 			if (err == nil) && (n > 1) {
 				if runner.Settings.PassthroughStdOut {
-					fmt.Println(str)
+					fmt.Print(str)
 				}
 				msgExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: <.*>")
 				tpsExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Dim")
