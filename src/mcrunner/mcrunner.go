@@ -36,12 +36,15 @@ const (
 
 // Settings encapsulates some basic settings for the server.
 type Settings struct {
-	Directory  string
-	Name       string
-	MOTD       string
-	MaxRAM     int
-	MaxPlayers int
-	Port       int
+	Directory         string
+	Name              string
+	MOTD              string
+	ListenAddress     string
+	MaxRAM            int
+	MaxPlayers        int
+	Port              int
+	PassthroughStdErr bool
+	PassthroughStdOut bool
 }
 
 // Status stores information on the status of the minecraft server.
@@ -91,7 +94,9 @@ func (runner *McRunner) Start() error {
 	runner.cmd = exec.Command("java", "-jar", "forge-universal.jar", "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA", "nogui")
 	runner.inPipe, _ = runner.cmd.StdinPipe()
 	runner.outPipe, _ = runner.cmd.StdoutPipe()
-	runner.cmd.Stderr = os.Stderr
+	if runner.Settings.PassthroughStdErr {
+		runner.cmd.Stderr = os.Stderr
+	}
 	err := runner.cmd.Start()
 	if err != nil {
 		fmt.Print(err)
@@ -155,6 +160,7 @@ func (runner *McRunner) applySettings() {
 
 // processOutput monitors and processes output from the server.
 func (runner *McRunner) processOutput() {
+	runner.WaitGroup.Add(1)
 	defer runner.WaitGroup.Done()
 	for {
 		select {
@@ -166,6 +172,9 @@ func (runner *McRunner) processOutput() {
 			str := string(buf[:n])
 
 			if (err == nil) && (n > 1) {
+				if runner.Settings.PassthroughStdOut {
+					fmt.Println(str)
+				}
 				msgExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: <.*>")
 				tpsExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: Dim")
 				playerExp, _ := regexp.Compile("\\[.*\\] \\[.*INFO\\] \\[.*DedicatedServer\\]: There are")
@@ -207,6 +216,7 @@ func (runner *McRunner) processOutput() {
 
 // keepAlive monitors the minecraft server and restarts it if it dies.
 func (runner *McRunner) keepAlive() {
+	runner.WaitGroup.Add(1)
 	defer runner.WaitGroup.Done()
 	for {
 		select {
@@ -227,6 +237,7 @@ func (runner *McRunner) keepAlive() {
 
 // updateStatus sends the status to the BotHandler when requested.
 func (runner *McRunner) updateStatus() {
+	runner.WaitGroup.Add(1)
 	defer runner.WaitGroup.Done()
 	for {
 		select {
@@ -298,6 +309,7 @@ func (runner *McRunner) updateStatus() {
 
 // processCommands processes commands from the discord bot.
 func (runner *McRunner) processCommands() {
+	runner.WaitGroup.Add(1)
 	defer runner.WaitGroup.Done()
 	for {
 		select {

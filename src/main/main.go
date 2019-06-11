@@ -19,20 +19,19 @@ func main() {
 	runner.CommandChannel = make(chan string, 32)
 	runner.FirstStart = true
 	runner.WaitGroup = sync.WaitGroup{}
-	runner.WaitGroup.Add(4)
 	go runner.Start()
 
 	bothandler := new(mcrunner.BotHandler)
 	bothandler.McRunner = runner
-	runner.WaitGroup.Add(3)
-	go bothandler.Start()
+	bothandler.Start()
 
+	// Prevent the program from exiting while there is still stuff running in the background.
 	runner.WaitGroup.Wait()
 }
 
 func loadSettings() mcrunner.Settings {
 	_, err := os.Stat("settings.json")
-	defaultSettings := mcrunner.Settings{Directory: "./", Name: "?", MOTD: "?", MaxRAM: 6192, MaxPlayers: 20, Port: 25565}
+	defaultSettings := mcrunner.Settings{Directory: "./", Name: "?", MOTD: "?", MaxRAM: 6192, MaxPlayers: 20, Port: 25565, ListenAddress: ":8080", PassthroughStdErr: true, PassthroughStdOut: false}
 
 	if err == nil {
 		file, err := os.Open("settings.json")
