@@ -1,12 +1,10 @@
 #!/bin/bash
 echo "=> Building runner"
 docker run --rm \
-    -it \
     -v "$PWD":/usr/src/mcrunner \
     -w /usr/src/mcrunner \
     -e GOOS=linux \
     -e GOARCH=amd64 \
+    -e GOPATH=/usr/src/mcrunner \
     golang:latest \
-    bash
-GOPATH=$PWD
-go build -v -o mcrunner.exe main
+    go build -v -o mcrunner.exe main
