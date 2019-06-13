@@ -294,10 +294,7 @@ func (runner *McRunner) Start() error {
 
 // applySettings applies the Settings struct contained in McRunner.
 func (runner *McRunner) applySettings() {
-	var propPathBuilder strings.Builder
-	propPathBuilder.WriteString(runner.Settings.Directory)
-	propPathBuilder.WriteString("server.properties")
-	propPath := propPathBuilder.String()
+	propPath := filepath.Join(McServerPath(), "server.properties")
 	props, err := ioutil.ReadFile(propPath)
 
 	if err != nil {
@@ -434,10 +431,7 @@ func (runner *McRunner) updateStatus() {
 			status.MemoryMax = runner.Settings.MaxRAM
 			status.Memory = int(memInfo.RSS / (1024 * 1024))
 
-			var worldPathBuilder strings.Builder
-			worldPathBuilder.WriteString(runner.Settings.Directory)
-			worldPathBuilder.WriteString("world/")
-			worldPath := worldPathBuilder.String()
+			worldPath := filepath.Join(McServerPath(), "world")
 			usage, _ := disk.Usage(worldPath)
 			status.Storage = usage.Used / (1024 * 1024)
 			status.StorageMax = usage.Total / (1024 * 1024)
