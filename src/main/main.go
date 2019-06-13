@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"mcrunner"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -30,11 +31,12 @@ func main() {
 }
 
 func loadSettings() mcrunner.Settings {
-	_, err := os.Stat("settings.json")
+	settingspath := filepath.Join(mcrunner.McServerPath(), "settings.json")
+	_, err := os.Stat(settingspath)
 	defaultSettings := mcrunner.Settings{Directory: "./", Name: "?", MOTD: "?", MaxRAM: 6192, MaxPlayers: 20, Port: 25565, ListenAddress: ":8080", PassthroughStdErr: true, PassthroughStdOut: false}
 
 	if err == nil {
-		file, err := os.Open("settings.json")
+		file, err := os.Open(settingspath)
 		if err == nil {
 			bytes, _ := ioutil.ReadAll(file)
 			var settings mcrunner.Settings
@@ -44,7 +46,7 @@ func loadSettings() mcrunner.Settings {
 	} else if os.IsNotExist(err) {
 		fmt.Println("'settings.json' not found, generating default file.")
 		settingsJSON, _ := json.MarshalIndent(defaultSettings, "", "    ")
-		err = ioutil.WriteFile("settings.json", settingsJSON, 0644)
+		err = ioutil.WriteFile(settingspath, settingsJSON, 0644)
 		if err != nil {
 			fmt.Print(err)
 		}
