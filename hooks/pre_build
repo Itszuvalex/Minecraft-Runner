@@ -7,4 +7,4 @@ docker run --rm \
     -e GOARCH=amd64 \
     -e GOPATH=/usr/src/mcrunner \
     golang:latest \
-    go build -v -o mcrunner.exe main
+    bash hooks/pre_build_build.sh
