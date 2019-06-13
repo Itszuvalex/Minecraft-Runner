@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,6 +35,12 @@ const (
 	Starting State = 1
 	// Running indicates the server is ready for players to connect to.
 	Running State = 2
+)
+
+const (
+	// MinecraftServerDirectory name of the directory underneath the main.exe containing all mcserver data
+	MinecraftServerDirectory = "mcserver"
+	MinecraftServerJar       = "forge-universal.jar"
 )
 
 // Settings encapsulates some basic settings for the server.
@@ -84,14 +93,175 @@ type McRunner struct {
 	playerChannel chan int
 }
 
+func RootPath() string {
+	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		log.Fatal(err)
+	}
+	return dir
+}
+
+func McServerPath() string {
+	return filepath.Join(RootPath(), MinecraftServerDirectory)
+}
+
+func ServerJarName(mcVer string, forgeVer string) string {
+	return fmt.Sprintf("forge-%s-%s-universal.jar", mcVer, forgeVer)
+}
+
+func (runner *McRunner) Installed() bool {
+	_, err := os.Stat(filepath.Join(McServerPath(), MinecraftServerJar))
+	return err == nil
+}
+
+func DownloadFile(localpath, netpath string, returnIfExists bool) error {
+	_, err := os.Stat(localpath)
+	if err == nil && returnIfExists {
+		return nil
+	}
+
+	localpathfile, err := os.Create(localpath)
+	if err != nil {
+		fmt.Println("Download file: Create file:", err)
+		return err
+	}
+	defer localpathfile.Close()
+
+	response, err := http.Get(netpath)
+	if err != nil {
+		fmt.Println("DownloadFile: downloading:", err)
+		return err
+	}
+	defer response.Body.Close()
+
+	_, err = io.Copy(localpathfile, response.Body)
+	if err != nil {
+		fmt.Println("DownloadFile: copying stream:", err)
+		return err
+	}
+
+	return nil
+}
+
+func (runner *McRunner) InstallForgeJar(mcver, forgever string) error {
+	installerjarname := "forge-universal.jar"
+	installerjarpath := filepath.Join(McServerPath(), installerjarname)
+	installernetpath := fmt.Sprintf("https://files.minecraftforge.net/maven/net/minecraftforge/forge/%s-%s/%s", mcver, forgever, ServerJarName(mcver, forgever))
+	err := DownloadFile(installerjarpath, installernetpath, true)
+	if err != nil {
+		fmt.Println("InstallForgeJar:", err)
+		return err
+	}
+	return nil
+}
+
+func (runner *McRunner) InstallMinecraftServerJar(mcver string) error {
+	jarname := fmt.Sprintf("minecraft_server.%s.jar", mcver)
+	netpath := fmt.Sprintf("https://s3.amazonaws.com/Minecraft.Download/versions/%s/%s", mcver, jarname)
+	jarpath := filepath.Join(McServerPath(), jarname)
+	err := DownloadFile(jarpath, netpath, true)
+	if err != nil {
+		fmt.Println("InstallMinecraftServerJar: DownloadFile:", err)
+		return err
+	}
+	return nil
+}
+
+func (runner *McRunner) InstallLaunchWrapper(wrapperver string) error {
+	path := fmt.Sprintf("net/minecraft/launchwrapper/%s/launchwrapper-%s.jar", wrapperver, wrapperver)
+	webpath := fmt.Sprintf("https://libraries.minecraft.net/%s", path)
+	localpath := filepath.Join(McServerPath(), "libraries", path)
+	err := DownloadFile(localpath, webpath, true)
+	if err != nil {
+		fmt.Println("InstallLaunchWrapper: DownloadFile:", err)
+		return err
+	}
+	return nil
+}
+
+func (runner *McRunner) HandleEula() error {
+	eulacmd := exec.Command("java", "-jar", "forge-universal.jar", "-Xmx2G", "nogui")
+	eulacmd.Dir = McServerPath()
+	fmt.Println("Generating eula")
+	err := eulacmd.Run()
+	if err != nil {
+		fmt.Println("HandleEula: Running java:", err)
+		return err
+	}
+
+	eulafilepath := filepath.Join(McServerPath(), "eula.txt")
+	_, err = os.Stat(eulafilepath)
+	if err != nil {
+		fmt.Println("HandleEula: Stat:", err)
+		return err
+	}
+
+	eulafile, err := ioutil.ReadFile(eulafilepath)
+	if err != nil {
+		fmt.Println("HandleEula: ReadFile:", err)
+		return err
+	}
+
+	newEula := strings.Replace(string(eulafile), "false", "true", -1)
+	err = ioutil.WriteFile(eulafilepath, []byte(newEula), 0)
+	if err != nil {
+		fmt.Println("HandleEula: Replace:", err)
+		return err
+	}
+
+	return nil
+}
+
+func (runner *McRunner) Install() error {
+	mcver := "1.12.2"
+	forgever := "14.23.5.2836"
+	launchwrapperver := "1.12"
+	err := runner.InstallForgeJar(mcver, forgever)
+	if err != nil {
+		fmt.Println("Install: InstallForgeJar:", err)
+		return err
+	}
+
+	err = runner.InstallLaunchWrapper(launchwrapperver)
+	if err != nil {
+		fmt.Println("Install: InstallLaunchWrapper:", err)
+		return err
+	}
+
+	err = runner.InstallMinecraftServerJar(mcver)
+	if err != nil {
+		fmt.Println("Install: InstallMinecraftServerJar:", err)
+		return err
+	}
+
+	err = runner.HandleEula()
+	if err != nil {
+		fmt.Println("Install: HandleEula:", err)
+		return err
+	}
+
+	return nil
+}
+
 // Start initializes the runner and starts the minecraft server up.
 func (runner *McRunner) Start() error {
 	if runner.State != NotRunning {
 		return nil
 	}
 
+	if !runner.Installed() {
+		fmt.Println("Installing server")
+		err := runner.Install()
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+	}
+	fmt.Println("Server installed")
+
 	runner.applySettings()
 	runner.cmd = exec.Command("java", "-jar", "forge-universal.jar", "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA", "nogui")
+	runner.cmd.Dir = McServerPath()
 	runner.inPipe, _ = runner.cmd.StdinPipe()
 	runner.outPipe, _ = runner.cmd.StdoutPipe()
 	if runner.Settings.PassthroughStdErr {
@@ -124,10 +294,7 @@ func (runner *McRunner) Start() error {
 
 // applySettings applies the Settings struct contained in McRunner.
 func (runner *McRunner) applySettings() {
-	var propPathBuilder strings.Builder
-	propPathBuilder.WriteString(runner.Settings.Directory)
-	propPathBuilder.WriteString("server.properties")
-	propPath := propPathBuilder.String()
+	propPath := filepath.Join(McServerPath(), "server.properties")
 	props, err := ioutil.ReadFile(propPath)
 
 	if err != nil {
@@ -264,10 +431,7 @@ func (runner *McRunner) updateStatus() {
 			status.MemoryMax = runner.Settings.MaxRAM
 			status.Memory = int(memInfo.RSS / (1024 * 1024))
 
-			var worldPathBuilder strings.Builder
-			worldPathBuilder.WriteString(runner.Settings.Directory)
-			worldPathBuilder.WriteString("world/")
-			worldPath := worldPathBuilder.String()
+			worldPath := filepath.Join(McServerPath(), "world")
 			usage, _ := disk.Usage(worldPath)
 			status.Storage = usage.Used / (1024 * 1024)
 			status.StorageMax = usage.Total / (1024 * 1024)
