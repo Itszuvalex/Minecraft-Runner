@@ -1,8 +1,8 @@
 #!/bin/bash
 echo "=> Building runner"
 docker run --rm \
-    -v "$PWD":/usr \
-    -w /usr \
+    -v "$PWD":/usr/src/mcrunner \
+    -w /usr/src/mcrunner \
     -e GOOS=linux \
     -e GOARCH=amd64 \
     golang:1.8 \
