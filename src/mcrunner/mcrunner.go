@@ -508,7 +508,6 @@ func (runner *McRunner) processCommands() {
 			default:
 				runner.executeCommand(command)
 			}
-			runner.executeCommand(command)
 		case <-runner.killChannel:
 			return
 		}

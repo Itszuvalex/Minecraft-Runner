@@ -1,9 +1,10 @@
 #!/bin/bash
 echo "=> Building runner"
 docker run --rm \
-    -v "$PWD":/usr \
-    -w /usr \
-    GOOS=linux \
-    GOARCH=amd64 \
-    golang:1.8 \
-    go build -v -o mcrunner.exe main
+    -v "$PWD":/usr/src/mcrunner \
+    -w /usr/src/mcrunner \
+    -e GOOS=linux \
+    -e GOARCH=amd64 \
+    -e GOPATH=/usr/src/mcrunner \
+    golang:latest \
+    bash hooks/pre_build_build.sh
