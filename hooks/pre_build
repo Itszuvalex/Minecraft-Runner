@@ -3,7 +3,7 @@ echo "=> Building runner"
 docker run --rm \
     -v "$PWD":/usr \
     -w /usr \
-    GOOS=linux \
-    GOARCH=amd64 \
+    -e GOOS=linux \
+    -e GOARCH=amd64 \
     golang:1.8 \
     go build -v -o mcrunner.exe main
