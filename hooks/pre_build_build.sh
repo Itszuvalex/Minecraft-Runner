@@ -1,2 +1,1 @@
-go get ./...
-go build -v -o mcrunner.exe main
+go get ./... && go build -v -o mcrunner.exe main

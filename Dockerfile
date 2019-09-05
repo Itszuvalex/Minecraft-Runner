@@ -4,10 +4,8 @@ EXPOSE 25565/tcp
 EXPOSE 25565/udp
 EXPOSE 8080/tcp
 
-WORKDIR /srv
-
-COPY mcrunner.exe /srv/mcrunner/
+COPY mcrunner /srv/mcrunner/
 
 WORKDIR /srv/mcrunner
 
-ENTRYPOINT /srv/mcrunner/mcrunner.exe
+ENTRYPOINT /srv/mcrunner/mcrunner
