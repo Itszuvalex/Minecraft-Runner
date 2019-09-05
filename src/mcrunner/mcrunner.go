@@ -2,6 +2,7 @@ package mcrunner
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -18,6 +19,11 @@ import (
 
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/process"
+)
+
+var (
+	PatternInstallerJar = regexp.MustCompile("forge-(.*?)-(.*?)-installer\\.jar")
+	PatternUniversalJar = regexp.MustCompile("forge-(.*?)universal.jar")
 )
 
 // IRunner interface to running object
@@ -40,7 +46,6 @@ const (
 const (
 	// MinecraftServerDirectory name of the directory underneath the main.exe containing all mcserver data
 	MinecraftServerDirectory = "mcserver"
-	MinecraftServerJar       = "forge-universal.jar"
 )
 
 // Settings encapsulates some basic settings for the server.
@@ -110,8 +115,8 @@ func ServerJarName(mcVer string, forgeVer string) string {
 }
 
 func (runner *McRunner) Installed() bool {
-	_, err := os.Stat(filepath.Join(McServerPath(), MinecraftServerJar))
-	return err == nil
+	hasJar, _ := runner.HasUniversalJar()
+	return hasJar
 }
 
 func DownloadFile(localpath, netpath string, returnIfExists bool) error {
@@ -186,7 +191,6 @@ func (runner *McRunner) HandleEula() error {
 	err := eulacmd.Run()
 	if err != nil {
 		fmt.Println("HandleEula: Running java:", err)
-		return err
 	}
 
 	eulafilepath := filepath.Join(McServerPath(), "eula.txt")
@@ -213,34 +217,84 @@ func (runner *McRunner) HandleEula() error {
 }
 
 func (runner *McRunner) Install() error {
-	mcver := "1.12.2"
-	forgever := "14.23.5.2836"
-	launchwrapperver := "1.12"
-	err := runner.InstallForgeJar(mcver, forgever)
-	if err != nil {
-		fmt.Println("Install: InstallForgeJar:", err)
-		return err
+	hasInstaller, installerName, mcver, forgever := runner.HasInstallerJar()
+	if hasInstaller {
+		err := runner.RunInstallerJar(installerName)
+		if err != nil {
+			fmt.Println("Install: Run InstallerJar", err)
+			return err
+		}
+	} else {
+		mcver = "1.12.2"
+		forgever = "14.23.5.2836"
+		launchwrapperver := "1.12"
+		err := runner.InstallForgeJar(mcver, forgever)
+		if err != nil {
+			fmt.Println("Install: InstallForgeJar:", err)
+			return err
+		}
+
+		err = runner.InstallLaunchWrapper(launchwrapperver)
+		if err != nil {
+			fmt.Println("Install: InstallLaunchWrapper:", err)
+			return err
+		}
+
+		err = runner.InstallMinecraftServerJar(mcver)
+		if err != nil {
+			fmt.Println("Install: InstallMinecraftServerJar:", err)
+			return err
+		}
 	}
 
-	err = runner.InstallLaunchWrapper(launchwrapperver)
-	if err != nil {
-		fmt.Println("Install: InstallLaunchWrapper:", err)
-		return err
-	}
-
-	err = runner.InstallMinecraftServerJar(mcver)
-	if err != nil {
-		fmt.Println("Install: InstallMinecraftServerJar:", err)
-		return err
-	}
-
-	err = runner.HandleEula()
+	err := runner.HandleEula()
 	if err != nil {
 		fmt.Println("Install: HandleEula:", err)
 		return err
 	}
 
 	return nil
+}
+
+func (runner *McRunner) HasInstallerJar() (bool, string, string, string) {
+	files, err := ioutil.ReadDir(McServerPath())
+	if err != nil {
+		return false, "", "", ""
+	}
+	for _, f := range files {
+		match := PatternInstallerJar.FindStringSubmatch(f.Name())
+		if match != nil {
+			return true, f.Name(), match[1], match[2]
+		}
+	}
+	return false, "", "", ""
+}
+
+func (runner *McRunner) RunInstallerJar(jarName string) error {
+	cmd := exec.Command("java", "-jar", jarName, "--installServer")
+	cmd.Dir = McServerPath()
+	fmt.Println("Running installer jar")
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("RunInstallerJar: Running java:", err)
+		return err
+	}
+
+	return nil
+}
+
+func (runner *McRunner) HasUniversalJar() (bool, string) {
+	files, err := ioutil.ReadDir(McServerPath())
+	if err != nil {
+		return false, ""
+	}
+	for _, f := range files {
+		match := PatternUniversalJar.FindStringSubmatch(f.Name())
+		if match != nil {
+			return true, f.Name()
+		}
+	}
+	return false, ""
 }
 
 // Start initializes the runner and starts the minecraft server up.
@@ -259,8 +313,16 @@ func (runner *McRunner) Start() error {
 	}
 	fmt.Println("Server installed")
 
+	hasUniversalJar, universalJar := runner.HasUniversalJar()
+	if !hasUniversalJar {
+		fmt.Println("Cannot find forge universal jar.")
+		return errors.New("Cannot find forge universal jar.")
+	}
+
+	fmt.Println("Using universal jar: ", universalJar)
+
 	runner.applySettings()
-	runner.cmd = exec.Command("java", "-jar", "forge-universal.jar", "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA", "nogui")
+	runner.cmd = exec.Command("java", "-jar", universalJar, "-Xms512M", fmt.Sprintf("-Xmx%dM", runner.Settings.MaxRAM), "-XX:+UseG1GC", "-XX:+UseCompressedOops", "-XX:MaxGCPauseMillis=50", "-XX:UseSSE=4", "-XX:+UseNUMA", "nogui")
 	runner.cmd.Dir = McServerPath()
 	runner.inPipe, _ = runner.cmd.StdinPipe()
 	runner.outPipe, _ = runner.cmd.StdoutPipe()
